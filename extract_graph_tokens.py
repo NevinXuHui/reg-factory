@@ -3,7 +3,7 @@
 Extract Microsoft Graph API refresh tokens from Outlook accounts.
 Uses pure requests to simulate OAuth2 authorization code flow (no browser needed).
 
-Output format: email----password----refresh_token----client_id
+Output format: email----password----client_id----refresh_token
 
 Usage:
   python extract_graph_tokens.py outlook_accounts/accounts_20260413_043056.txt
@@ -348,7 +348,8 @@ def main():
         out_file = os.path.join(OUTPUT_DIR, f"graph_tokens_{ts}.txt")
         with open(out_file, "w", encoding="utf-8") as f:
             for r in results:
-                f.write(f"{r['email']}----{r['password']}----{r.get('refresh_token','')}----{CLIENT_ID}\n")
+                # Format: email----password----client_id----refresh_token
+                f.write(f"{r['email']}----{r['password']}----{CLIENT_ID}----{r.get('refresh_token','')}\n")
         print(f"  Saved to: {out_file}")
 
         for r in results:
