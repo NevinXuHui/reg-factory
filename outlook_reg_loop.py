@@ -269,15 +269,16 @@ async def one_attempt(mod, proxy_str, idx, region="en-us"):
                 break
             except Exception as e:
                 m = str(e)
+                # Always log the actual error first
+                log(f"create_browser error (try {_r+1}/5): {m[:300]}", "WARN")
                 if "最大" in m or "超过" in m:
-                    log("BitBrowser quota — cleanup_browsers(keep=2)", "WARN")
+                    log("Detected quota issue — cleanup_browsers(keep=2)", "WARN")
                     try: bb.cleanup_browsers(keep=2)
                     except Exception: pass
                     await asyncio.sleep(3)
                     continue
                 if _r >= 4:
                     raise
-                log(f"create_browser err (try {_r+1}/5): {m[:200]}", "WARN")
                 await asyncio.sleep(3 + _r)
         if not profile_id:
             return None, None, []
