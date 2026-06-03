@@ -59,6 +59,20 @@ EZCAPTCHA_API_BASE = os.environ.get("EZCAPTCHA_API_BASE", "https://api.ez-captch
 # Arkose Labs public key for Microsoft signup
 MS_SIGNUP_ARKOSE_KEY = "B7D8911C-5CC8-A9A3-35B0-554ACEE604DA"
 
+# Region/Market mapping (mkt parameter -> domain suffix)
+REGION_MAPPING = {
+    "en-us": {"domain": "outlook.com", "mkt": "en-us"},
+    "de-de": {"domain": "outlook.de", "mkt": "de-de"},
+    "fr-fr": {"domain": "outlook.fr", "mkt": "fr-fr"},
+    "es-es": {"domain": "outlook.es", "mkt": "es-es"},
+    "it-it": {"domain": "outlook.it", "mkt": "it-it"},
+    "pt-br": {"domain": "outlook.com.br", "mkt": "pt-br"},
+    "nl-nl": {"domain": "outlook.com", "mkt": "nl-nl"},
+    "ja-jp": {"domain": "outlook.jp", "mkt": "ja-jp"},
+    "ko-kr": {"domain": "outlook.kr", "mkt": "ko-kr"},
+    "zh-cn": {"domain": "outlook.com", "mkt": "zh-cn"},
+}
+
 # Output
 OUTPUT_DIR = "outlook_accounts"
 SCREENSHOT_DIR = "screenshots_outlook"
@@ -265,14 +279,26 @@ def generate_name():
     return random.choice(first_names), random.choice(last_names)
 
 
-def generate_email_password():
-    """Generate random Outlook email and password"""
+def generate_email_password(region="en-us"):
+    """Generate random Outlook email and password
+
+    Args:
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr')
+
+    Returns:
+        tuple: (email, password, prefix, domain)
+    """
     prefix = random.choice(string.ascii_lowercase) + "".join(
         random.choices(string.ascii_lowercase + string.digits, k=11)
     )
-    email = f"{prefix}@outlook.com"
+
+    # Get domain for the region
+    region_info = REGION_MAPPING.get(region.lower(), REGION_MAPPING["en-us"])
+    domain = region_info["domain"]
+
+    email = f"{prefix}@{domain}"
     password = "Aa1!" + "".join(random.choices(string.ascii_letters + string.digits, k=12))
-    return email, password, prefix
+    return email, password, prefix, domain
 
 
 # ======================== CAPTCHA Solvers ========================
@@ -604,21 +630,31 @@ async def extract_graph_token(page, context, email, password, idx=0):
 
 # ======================== Outlook Registration ========================
 
-async def register_outlook(page, context, idx=0, captcha_early_abort=False):
+async def register_outlook(page, context, idx=0, captcha_early_abort=False, region="en-us"):
     """
     Register a new Outlook email account.
     Returns (email, password) on success, (None, None) on failure.
 
-    captcha_early_abort: when True (headless mode), abort immediately after captcha
-    solvers fail so the caller can fall back faster. When False (browser/BitBrowser
-    mode), keep the loop running — PX presses sometimes pass after 10–30 s naturally.
+    Args:
+        page: Playwright page object
+        context: Playwright context
+        idx: Account index for logging
+        captcha_early_abort: when True (headless mode), abort immediately after captcha
+                           solvers fail so the caller can fall back faster. When False (browser/BitBrowser
+                           mode), keep the loop running — PX presses sometimes pass after 10–30 s naturally.
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr') for signup URL and domain
     """
     os.makedirs(SCREENSHOT_DIR, exist_ok=True)
     tag = f"[#{idx}]"
 
+    # Get region info
+    region_info = REGION_MAPPING.get(region.lower(), REGION_MAPPING["en-us"])
+    mkt = region_info["mkt"]
+    signup_url = f"https://signup.live.com/signup?mkt={mkt}&lic=1"
+
     try:
-        print(f"  {tag} navigating to signup page...")
-        await page.goto("https://signup.live.com/signup?lic=1", timeout=60000, wait_until="domcontentloaded")
+        print(f"  {tag} navigating to signup page (region={region}, mkt={mkt})...")
+        await page.goto(signup_url, timeout=60000, wait_until="domcontentloaded")
         await asyncio.sleep(3)
         await page.screenshot(path=f"{SCREENSHOT_DIR}/outlook_{idx}_start.png")
 
@@ -679,8 +715,8 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False):
                 break
 
         # Generate email and password
-        email, password, prefix = generate_email_password()
-        print(f"  {tag} registering: {email}")
+        email, password, prefix, domain = generate_email_password(region)
+        print(f"  {tag} registering: {email} (domain={domain})")
 
         # Step 1: Enter email
         email_ok = False
@@ -704,9 +740,16 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False):
             if has_domain_dropdown:
                 await email_input.fill(prefix)
                 try:
-                    await domain_dropdown.select_option("outlook.com")
-                except Exception:
-                    pass
+                    await domain_dropdown.select_option(domain)
+                    print(f"  {tag} selected domain: {domain}")
+                except Exception as e:
+                    # Fallback to outlook.com if target domain not available
+                    print(f"  {tag} domain {domain} not available, trying outlook.com: {e}")
+                    try:
+                        await domain_dropdown.select_option("outlook.com")
+                        email = f"{prefix}@outlook.com"
+                    except Exception:
+                        pass
                 print(f"  {tag} filled prefix: {prefix} (dropdown)")
             else:
                 await email_input.fill(email)
@@ -727,7 +770,7 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False):
                 prefix = random.choice(string.ascii_lowercase) + "".join(
                     random.choices(string.ascii_lowercase + string.digits, k=11)
                 )
-                email = f"{prefix}@outlook.com"
+                email = f"{prefix}@{domain}"
                 print(f"  {tag} email taken, retry: {email}")
                 continue
 
@@ -735,7 +778,7 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False):
                 prefix = random.choice(string.ascii_lowercase) + "".join(
                     random.choices(string.ascii_lowercase + string.digits, k=9)
                 )
-                email = f"{prefix}@outlook.com"
+                email = f"{prefix}@{domain}"
                 print(f"  {tag} format error, retry: {email}")
                 continue
 
@@ -1450,12 +1493,26 @@ def _proxy_for_playwright(proxy_str):
     return result
 
 
-def register_outlook_protocol(proxy_str=None, idx=0):
+def register_outlook_protocol(proxy_str=None, idx=0, region="en-us"):
     """
     Register Outlook via pure HTTP requests — no browser, ~50KB per attempt.
-    Returns (email, password) on success, (None, None) on failure/captcha.
+
+    Args:
+        proxy_str: Proxy string (user:pass@host:port)
+        idx: Account index for logging
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr')
+
+    Returns:
+        tuple: (email, password) on success, (None, None) on failure/captcha.
     """
     tag = f"[#{idx}][proto]"
+
+    # Get region info
+    region_info = REGION_MAPPING.get(region.lower(), REGION_MAPPING["en-us"])
+    mkt = region_info["mkt"]
+    domain = region_info["domain"]
+    signup_url = f"https://signup.live.com/signup?mkt={mkt}&lic=1"
+
     session = requests.Session()
     proxies = _proxy_for_requests(proxy_str)
     session.headers.update({
@@ -1471,9 +1528,9 @@ def register_outlook_protocol(proxy_str=None, idx=0):
     })
 
     try:
-        print(f"  {tag} GET signup page...")
+        print(f"  {tag} GET signup page (region={region}, mkt={mkt})...")
         resp = session.get(
-            "https://signup.live.com/signup?lic=1",
+            signup_url,
             proxies=proxies, timeout=30, allow_redirects=True,
         )
         if resp.status_code != 200:
@@ -1522,13 +1579,14 @@ def register_outlook_protocol(proxy_str=None, idx=0):
         canary_val = canary_val_m.group(1) if canary_val_m else ""
 
         # Generate account details
-        email, password, prefix = generate_email_password()
+        email, password, prefix, domain = generate_email_password(region)
         first_name, last_name = generate_name()
+        print(f"  {tag} registering: {email} (domain={domain})")
         year, month, day = generate_birthday()
         print(f"  {tag} trying: {email}")
 
         form_data = {
-            "MemberName": f"{prefix}@outlook.com",
+            "MemberName": email,
             "Password": password,
             "FirstName": first_name,
             "LastName": last_name,
@@ -1536,7 +1594,7 @@ def register_outlook_protocol(proxy_str=None, idx=0):
             "BirthMonth": str(month),
             "BirthYear": str(year),
             "Country": "US",
-            "LiveDomainBoxList": "outlook.com",
+            "LiveDomainBoxList": domain,
             "LcId": "1033",
             "PPFT": ppft,
             "lic": "1",
@@ -1551,7 +1609,7 @@ def register_outlook_protocol(proxy_str=None, idx=0):
             data=form_data,
             headers={
                 "Content-Type": "application/x-www-form-urlencoded",
-                "Referer": "https://signup.live.com/signup?lic=1",
+                "Referer": signup_url,
                 "Origin": "https://signup.live.com",
             },
             proxies=proxies, timeout=30, allow_redirects=True,
@@ -1631,13 +1689,18 @@ _block_heavy_resources = _make_block_handler(_BLOCK_TYPES_HEADLESS)   # headless
 _block_browser_resources = _make_block_handler(_BLOCK_TYPES_BROWSER)   # browser: keep CSS
 
 
-async def _register_one_headless(idx, proxy_str):
+async def _register_one_headless(idx, proxy_str, region="en-us"):
     """
     Register via truly headless Chrome (no window shown to user).
     Uses headless=True with comprehensive fingerprint patches to compensate
     for the missing headed-browser signals that PerimeterX checks.
     Resource blocking saves ~70% bandwidth vs full BitBrowser.
     Returns (email, password) or (None, None).
+
+    Args:
+        idx: Account index for logging
+        proxy_str: Proxy string (user:pass@host:port)
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr')
     """
     tag = f"[#{idx}][headless]"
     try:
@@ -1765,7 +1828,7 @@ async def _register_one_headless(idx, proxy_str):
             await page.route("**/*", _block_heavy_resources)
 
             # Abort early when captcha solvers fail so auto-mode falls back to BitBrowser fast
-            email, password = await register_outlook(page, context, idx, captcha_early_abort=True)
+            email, password = await register_outlook(page, context, idx, captcha_early_abort=True, region=region)
 
             try:
                 await browser.close()
@@ -1781,10 +1844,16 @@ async def _register_one_headless(idx, proxy_str):
 
 # ======================== Browser Mode (BitBrowser, full GUI) ========================
 
-async def _register_one_browser(bb, idx, proxy_str):
+async def _register_one_browser(bb, idx, proxy_str, region="en-us"):
     """
     Register via BitBrowser full browser (highest traffic, most reliable).
     Returns (email, password) or (None, None).
+
+    Args:
+        bb: BitBrowser client instance
+        idx: Account index for logging
+        proxy_str: Proxy string (user:pass@host:port)
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr')
     """
     tag = f"[#{idx}][browser]"
     profile_id = None
@@ -1832,7 +1901,7 @@ async def _register_one_browser(bb, idx, proxy_str):
             # NOTE: resource blocking intentionally disabled in browser mode.
             # PerimeterX behavioral analysis can detect modified network patterns.
             # Bandwidth saving via resource blocking only applies in headless mode.
-            email, password = await register_outlook(page, context, idx)
+            email, password = await register_outlook(page, context, idx, region=region)
 
         return email, password
 
@@ -1852,13 +1921,14 @@ async def _register_one_browser(bb, idx, proxy_str):
 
 # ======================== Main ========================
 
-async def register_one(bb, idx, proxy_str, results, results_lock, live_fh=None, mode="auto"):
+async def register_one(bb, idx, proxy_str, results, results_lock, live_fh=None, mode="auto", region="en-us"):
     """
     Register one Outlook account with fallback across three modes.
       mode="auto"     — protocol → headless → browser (fallback chain)
       mode="protocol" — HTTP only, fastest, lowest traffic
       mode="headless" — headless Playwright, no BitBrowser, ~70% less traffic
       mode="browser"  — BitBrowser full GUI, highest traffic, most reliable
+      region          — Region code (e.g., 'en-us', 'de-de', 'fr-fr')
     """
     tag = f"[#{idx}]"
     email, password = None, None
@@ -1870,7 +1940,7 @@ async def register_one(bb, idx, proxy_str, results, results_lock, live_fh=None, 
             print(f"  {tag} [1/3] protocol mode...")
             loop = asyncio.get_event_loop()
             email, password = await loop.run_in_executor(
-                None, register_outlook_protocol, proxy_str, idx
+                None, register_outlook_protocol, proxy_str, idx, region
             )
             if email:
                 used_mode = "protocol"
@@ -1882,7 +1952,7 @@ async def register_one(bb, idx, proxy_str, results, results_lock, live_fh=None, 
             print(f"  {tag} [2/3] headless mode (timeout={HEADLESS_TIMEOUT}s)...")
             try:
                 email, password = await asyncio.wait_for(
-                    _register_one_headless(idx, proxy_str),
+                    _register_one_headless(idx, proxy_str, region),
                     timeout=HEADLESS_TIMEOUT,
                 )
             except asyncio.TimeoutError:
@@ -1895,7 +1965,7 @@ async def register_one(bb, idx, proxy_str, results, results_lock, live_fh=None, 
             print(f"  {tag} [3/3] browser mode (BitBrowser)...")
             try:
                 email, password = await asyncio.wait_for(
-                    _register_one_browser(bb, idx, proxy_str),
+                    _register_one_browser(bb, idx, proxy_str, region),
                     timeout=REGISTER_TIMEOUT,
                 )
             except asyncio.TimeoutError:
@@ -1937,6 +2007,8 @@ async def main():
                         help="auto=protocol→headless→browser fallback; or fix to one mode")
     parser.add_argument("--no-verify", action="store_true",
                         help="Do not verify Outlook login before writing successful accounts")
+    parser.add_argument("--region", "-r", type=str, default="en-us",
+                        help="Region code for signup (e.g., en-us, de-de, fr-fr, es-es, it-it, pt-br, ja-jp, ko-kr)")
     args = parser.parse_args()
 
     global REGISTER_TIMEOUT, VERIFY_AFTER_REGISTER
@@ -1979,9 +2051,15 @@ async def main():
         "headless": "headless only (no BitBrowser, -70% traffic)",
         "browser":  "browser only (BitBrowser full GUI)",
     }
+
+    # Get region info
+    region_info = REGION_MAPPING.get(args.region.lower(), REGION_MAPPING["en-us"])
+    region_domain = region_info["domain"]
+
     print("=" * 60)
     print("  Outlook Registration - Multi-mode")
     print(f"  count={count}  concurrency={args.concurrency}  timeout={args.timeout}s")
+    print(f"  region: {args.region} → @{region_domain}")
     print(f"  mode:  {args.mode} — {mode_desc[args.mode]}")
     print(f"  proxy: {proxy_mode}")
     print("=" * 60)
@@ -2004,7 +2082,7 @@ async def main():
             print(f"\n{'#' * 50}")
             print(f"  Account #{i + 1}/{count}")
             print(f"{'#' * 50}")
-            await register_one(bb, i + 1, proxy, results, results_lock, live_fh, mode=args.mode)
+            await register_one(bb, i + 1, proxy, results, results_lock, live_fh, mode=args.mode, region=args.region)
 
     await asyncio.gather(*[run_one(i) for i in range(count)])
     live_fh.close()

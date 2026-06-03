@@ -245,10 +245,17 @@ def write_record(record):
     return fname
 
 
-async def one_attempt(mod, proxy_str, idx):
+async def one_attempt(mod, proxy_str, idx, region="en-us"):
     """Mirrors bs_register_step1.fetch_email_from_self_register's inline
     flow, but doesn't carry the breaker state — we're a dedicated loop and
-    want to keep trying."""
+    want to keep trying.
+
+    Args:
+        mod: The loaded register_outlook_standalone module
+        proxy_str: Proxy string
+        idx: Attempt index
+        region: Region code (e.g., 'en-us', 'de-de', 'fr-fr')
+    """
     profile_id = None
     bb = mod.BitBrowserClient()
     try:
@@ -299,7 +306,7 @@ async def one_attempt(mod, proxy_str, idx):
             except Exception:
                 pass
             page = await ctx.new_page()
-            email, password = await mod.register_outlook(page, ctx, idx)
+            email, password = await mod.register_outlook(page, ctx, idx, region=region)
             cookies = []
             if email:
                 try:
@@ -341,6 +348,8 @@ def main():
                     help="seconds between attempts (after fail or success)")
     ap.add_argument("--sleep-when-full", type=int, default=60,
                     help="seconds to sleep when pool is at target")
+    ap.add_argument("--region", "-r", type=str, default="en-us",
+                    help="Region code for signup (e.g., en-us, de-de, fr-fr, es-es)")
     args = ap.parse_args()
 
     os.environ.setdefault("OUTLOOK_REG_MAX_PRESS", args.max_press)
@@ -387,7 +396,7 @@ def main():
         cookies = []
         try:
             email, password, cookies = asyncio.run(
-                asyncio.wait_for(one_attempt(mod, proxy, n), timeout=args.timeout)
+                asyncio.wait_for(one_attempt(mod, proxy, n, args.region), timeout=args.timeout)
             )
         except Exception as e:
             log(f"attempt raised {type(e).__name__}: {str(e)[:200]}", "WARN")
