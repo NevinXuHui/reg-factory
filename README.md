@@ -98,30 +98,289 @@ cp .env.example .env
 
 ## 4. 运行
 
-### 端到端（注册邮箱 → 三平台注册）
+### 🚀 快速开始（推荐使用 run.sh）
+
+项目提供了统一的命令行工具 `run.sh`，自动管理虚拟环境，简化所有操作。
+
+#### 首次使用
+
 ```bash
+# 初始化环境（创建虚拟环境、安装依赖）
+./run.sh setup
+
+# 检查环境是否就绪
+./run.sh check
+```
+
+#### 常用命令
+
+```bash
+# 查看所有命令和帮助
+./run.sh help
+
+# Outlook 注册（两种模式）
+./run.sh outlook --count 10 --region de-de              # BitBrowser 模式（循环养号）
+./run.sh outlook-standalone --count 10 --region de-de   # 独立模式（批量注册）
+
+# 三平台注册
+./run.sh platforms                                       # 从邮箱池注册
+
+# 导出 cookie
+./run.sh export claude chatgpt grok                      # 导出指定平台
+
+# 提取 Graph tokens
+./run.sh tokens                                          # 自动扫描并提取
+
+# 解锁被锁账号
+./run.sh unlock                                          # 批量解锁
+
+# Clash 节点管理
+./run.sh clash list                                      # 列出节点
+./run.sh clash ping                                      # 测试连通性
+```
+
+---
+
+### 📋 详细使用说明
+
+#### Outlook 注册：两种模式对比
+
+| 特性 | `outlook` | `outlook-standalone` |
+|------|-----------|----------------------|
+| **依赖** | 需要 BitBrowser | 可选 BitBrowser |
+| **代理方式** | Clash TUN/系统代理 | 支持多种方式 |
+| **运行模式** | 循环注册（长期运行） | 批量注册（一次性） |
+| **配额限制** | 受 BitBrowser 免费版限制 | `protocol`/`headless` 模式无限制 |
+| **注册速度** | 中等 | `protocol` 模式最快 |
+| **适用场景** | 日常养号，稳定注册 | 批量注册，绕过配额限制 |
+
+##### 1️⃣ outlook - BitBrowser 模式（循环养号）
+
+```bash
+# 注册 10 个美国 outlook.com 邮箱
+./run.sh outlook --count 10
+
+# 注册德国 outlook.de 邮箱
+./run.sh outlook --count 10 --region de-de
+
+# 无限循环注册法国邮箱
+./run.sh outlook --region fr-fr
+```
+
+**注意：** 免费版 BitBrowser 每天有创建窗口配额限制。
+
+##### 2️⃣ outlook-standalone - 独立模式（批量注册）
+
+支持多种运行模式，不完全依赖 BitBrowser。
+
+**运行模式：**
+- `auto`（默认）：protocol → headless → browser 自动回退
+- `protocol`：纯 HTTP 模式，最快（~50KB/账号）
+- `headless`：无头浏览器，节省 70% 流量
+- `browser`：完整 BitBrowser 模式
+
+**代理配置：**
+```bash
+# 使用 .env 中的 OUTLOOK_PROXIES 住宅代理
+./run.sh outlook-standalone --count 10 --region de-de
+
+# 使用自定义代理文件
+./run.sh outlook-standalone --count 10 --proxy-file proxies.txt
+
+# 不使用代理（Clash TUN）
+./run.sh outlook-standalone --count 5 --no-proxy
+```
+
+**指定运行模式：**
+```bash
+# 纯 HTTP 模式（最快，不需要 BitBrowser）
+./run.sh outlook-standalone --count 20 --mode protocol --region de-de
+
+# 无头浏览器模式（不需要 BitBrowser）
+./run.sh outlook-standalone --count 10 --mode headless
+
+# 完整浏览器模式（需要 BitBrowser）
+./run.sh outlook-standalone --count 5 --mode browser
+```
+
+**区域选择：**
+
+| 地区 | 代码 | 邮箱后缀 | 地区 | 代码 | 邮箱后缀 |
+|------|------|---------|------|------|---------|
+| 美国 | `en-us` | @outlook.com | 德国 | `de-de` | @outlook.de |
+| 法国 | `fr-fr` | @outlook.fr | 西班牙 | `es-es` | @outlook.es |
+| 意大利 | `it-it` | @outlook.it | 巴西 | `pt-br` | @outlook.com.br |
+| 日本 | `ja-jp` | @outlook.jp | 韩国 | `ko-kr` | @outlook.kr |
+
+---
+
+### 💡 推荐使用场景
+
+```bash
+# 场景 1：BitBrowser 配额用完了
+./run.sh outlook-standalone --count 20 --mode protocol --region de-de
+
+# 场景 2：有住宅代理（OUTLOOK_PROXIES）
+./run.sh outlook-standalone --count 10 --region de-de
+
+# 场景 3：通过 Clash，不用 BitBrowser
+./run.sh outlook-standalone --count 10 --mode headless --no-proxy
+
+# 场景 4：日常养号（长期运行）
+./run.sh outlook --count 10 --region de-de
+```
+
+---
+
+### 🔧 传统方式（不使用 run.sh）
+
+需要手动管理虚拟环境：
+
+```bash
+# 激活虚拟环境
+source venv/bin/activate
+
+# 各种操作...
+python outlook_reg_loop.py --count 20 --region de-de
+python export_accounts.py claude chatgpt
+python extract_graph_tokens.py
+
+# 退出虚拟环境
+deactivate
+```
+
+详细命令请参考原有文档或运行 `venv/bin/python <script> --help`。
+./run.sh outlook --count 10
+
+# 注册德国 outlook.de 邮箱
+./run.sh outlook --count 10 --region de-de
+
+# 无限循环注册法国邮箱
+./run.sh outlook --region fr-fr
+```
+
+**注意：** 免费版 BitBrowser 每天有创建窗口配额限制。
+
+##### 2️⃣ outlook-standalone - 独立模式（批量注册）
+
+支持多种运行模式，不完全依赖 BitBrowser，可绕过配额限制。
+
+**运行模式：**
+- `auto`（默认）：protocol → headless → browser 自动回退
+- `protocol`：纯 HTTP 模式，最快，流量最小（~50KB/账号）
+- `headless`：无头浏览器模式，节省 70% 流量
+- `browser`：完整 BitBrowser 模式（需配额）
+
+**代理配置：**
+```bash
+# 使用 .env 中配置的 OUTLOOK_PROXIES 住宅代理
+./run.sh outlook-standalone --count 10 --region de-de
+
+# 使用自定义代理文件
+./run.sh outlook-standalone --count 10 --proxy-file proxies.txt --region es-es
+
+# 不使用代理（通过 Clash TUN）
+./run.sh outlook-standalone --count 5 --no-proxy --region de-de
+```
+
+**指定运行模式：**
+```bash
+# 纯 HTTP 模式（最快，无浏览器，不需要 BitBrowser）
+./run.sh outlook-standalone --count 20 --mode protocol --region de-de
+
+# 无头浏览器模式（节省流量，不需要 BitBrowser）
+./run.sh outlook-standalone --count 10 --mode headless --region fr-fr
+
+# 完整浏览器模式（需要 BitBrowser）
+./run.sh outlook-standalone --count 5 --mode browser --region de-de
+```
+
+**区域选择（`--region`）：**
+
+| 地区代码 | 国家/地区 | 邮箱后缀 |
+|---------|----------|---------|
+| `en-us` | 美国（默认） | @outlook.com |
+| `de-de` | 德国 | @outlook.de |
+| `fr-fr` | 法国 | @outlook.fr |
+| `es-es` | 西班牙 | @outlook.es |
+| `it-it` | 意大利 | @outlook.it |
+| `pt-br` | 巴西 | @outlook.com.br |
+| `ja-jp` | 日本 | @outlook.jp |
+| `ko-kr` | 韩国 | @outlook.kr |
+
+---
+
+### 💡 推荐使用场景
+
+#### 场景 1：BitBrowser 配额用完了
+```bash
+# 使用 protocol 模式，不需要 BitBrowser
+./run.sh outlook-standalone --count 20 --mode protocol --region de-de
+```
+
+#### 场景 2：有住宅代理（`OUTLOOK_PROXIES`）
+```bash
+# 在 .env 中配置 OUTLOOK_PROXIES，然后运行
+./run.sh outlook-standalone --count 10 --region de-de
+```
+
+#### 场景 3：通过 Clash 注册，不想用 BitBrowser
+```bash
+# 使用 headless 模式 + Clash TUN
+./run.sh outlook-standalone --count 10 --mode headless --no-proxy --region de-de
+```
+
+#### 场景 4：日常养号（长期运行）
+```bash
+# 使用 outlook 命令（需要 BitBrowser）
+./run.sh outlook --count 10 --region de-de
+```
+
+---
+
+### 🔧 传统方式（不推荐）
+
+如果不使用 `run.sh`，需要手动管理虚拟环境：
+
+#### 端到端（注册邮箱 → 三平台注册）
+```bash
+# 激活虚拟环境
+source venv/bin/activate
+
 python run_full_flow.py                       # 注册 1 个 outlook 号后在 claude 上注册
 python run_full_flow.py --platforms claude chatgpt grok
 python run_full_flow.py --skip-email --email a@outlook.com --password xxx
 python run_full_flow.py --dry-run             # 只打印将执行的命令
+
+# 退出虚拟环境
+deactivate
 ```
 > 自动注入 `HTTP(S)_PROXY` 与 `CLASH_API/SECRET/GROUP` 给子进程。
 
-### 仅三平台注册（已有邮箱池 emails.txt）
+#### 仅三平台注册（已有邮箱池 emails.txt）
 ```bash
+source venv/bin/activate
+
 python register_three_platforms.py --from-pool
 python register_three_platforms.py --email a@outlook.com --password xxx --token <refresh>
 python register_three_platforms.py --loop     # 常驻消费池
+
+deactivate
 ```
 并行流水线模式下建议先起共享取码服务（避免三窗口并发登录同一邮箱）：
 ```bash
 python mailbox_broker.py --port 8765
 ```
 
-### 仅养号（持续自注册 Outlook，写入 _outlook_pool/ 与 emails.txt）
+#### 仅养号（持续自注册 Outlook，写入 _outlook_pool/ 与 emails.txt）
 ```bash
+source venv/bin/activate
+
 python outlook_reg_loop.py                     # 循环
 python outlook_reg_loop.py --count 20          # 注册 20 个后退出
+python outlook_reg_loop.py --region de-de      # 注册德国邮箱
+
+deactivate
 ```
 
 ### 导出已注册账号 cookie（供直登扩展使用）
