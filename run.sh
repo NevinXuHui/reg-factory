@@ -53,7 +53,8 @@ ${YELLOW}命令列表:${NC}
   ${BLUE}check${NC}              检查运行环境
   ${BLUE}full${NC}               端到端注册（outlook → 三平台）
   ${BLUE}platforms${NC}          仅三平台注册（从邮箱池）
-  ${BLUE}outlook${NC}            仅养 Outlook 号（循环注册）
+  ${BLUE}outlook${NC}            仅养 Outlook 号（循环注册，使用 BitBrowser）
+  ${BLUE}outlook-standalone${NC} 独立 Outlook 注册（支持多种模式和代理配置）
   ${BLUE}export${NC}             导出已注册账号 cookie
   ${BLUE}unlock${NC}             批量解锁被锁的 Outlook 账号
   ${BLUE}tokens${NC}             提取 Outlook Graph refresh_token
@@ -76,9 +77,12 @@ ${YELLOW}示例:${NC}
   ./run.sh check                              # 检查环境是否就绪
   ./run.sh full                               # 注册 1 个 outlook + claude
   ./run.sh full --platforms claude chatgpt    # 注册 1 个 outlook + claude + chatgpt
-  ./run.sh outlook --count 10                 # 养 10 个美国 outlook.com 号
-  ./run.sh outlook --count 10 --region de-de  # 养 10 个德国 outlook.de 号
-  ./run.sh outlook --region fr-fr            # 无限循环养法国 outlook.fr 号
+  ./run.sh outlook --count 10                 # 养 10 个美国 outlook.com 号（BitBrowser）
+  ./run.sh outlook --count 10 --region de-de  # 养 10 个德国 outlook.de 号（BitBrowser）
+  ./run.sh outlook --region fr-fr            # 无限循环养法国 outlook.fr 号（BitBrowser）
+  ./run.sh outlook-standalone --count 5 --region de-de  # 独立模式注册 5 个德国号
+  ./run.sh outlook-standalone --count 10 --mode protocol  # 纯 HTTP 模式（最快）
+  ./run.sh outlook-standalone --count 5 --no-proxy  # 不使用代理（Clash TUN）
   ./run.sh platforms                          # 从邮箱池注册三平台
   ./run.sh export claude chatgpt              # 导出 claude 和 chatgpt 的 cookie
   ./run.sh unlock                             # 解锁被锁账号
@@ -269,6 +273,12 @@ outlook_loop() {
     python_cmd outlook_reg_loop.py "$@"
 }
 
+# 独立 Outlook 注册（支持更多参数）
+outlook_standalone() {
+    info "启动 Outlook 独立注册..."
+    python_cmd register_outlook_standalone.py "$@"
+}
+
 # 导出 cookie
 export_accounts() {
     info "导出账号 cookie..."
@@ -343,6 +353,9 @@ main() {
             ;;
         outlook)
             outlook_loop "$@"
+            ;;
+        outlook-standalone)
+            outlook_standalone "$@"
             ;;
         export)
             export_accounts "$@"
