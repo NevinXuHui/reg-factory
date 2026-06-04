@@ -157,15 +157,26 @@ cp .env.example .env
 ##### 1️⃣ outlook - BitBrowser 模式（循环养号）
 
 ```bash
-# 注册 10 个美国 outlook.com 邮箱
+# 注册 10 个美国 outlook.com 邮箱（默认不轮换代理）
 ./run.sh outlook --count 10
+
+# 注册 10 个号并启用代理轮换（每次注册前换节点）
+./run.sh outlook --count 10 --rotate-proxy
 
 # 注册德国 outlook.de 邮箱
 ./run.sh outlook --count 10 --region de-de
 
+# 注册德国邮箱并启用代理轮换
+./run.sh outlook --count 10 --region de-de --rotate-proxy
+
 # 无限循环注册法国邮箱
 ./run.sh outlook --region fr-fr
 ```
+
+**代理轮换说明：**
+- 默认行为：使用当前在 Clash 中选择的代理节点（不自动轮换）
+- 使用 `--rotate-proxy` 启用：每次注册前自动轮换到下一个节点（round-robin 策略）
+- 轮换逻辑：先切换外层组节点，如 IP 未改变则递归切换嵌套组内节点
 
 **注意：** 免费版 BitBrowser 每天有创建窗口配额限制。
 

@@ -8,7 +8,8 @@ via the `pool` email source — fully decoupled, so a slow self-reg attempt
 never blocks the Replit signup pipeline.
 
 Usage:
-  python outlook_reg_loop.py                       # loop forever
+  python outlook_reg_loop.py                       # loop forever (no rotation)
+  python outlook_reg_loop.py --rotate-proxy        # enable proxy rotation
   python outlook_reg_loop.py --count 20            # 20 attempts then exit
   python outlook_reg_loop.py --target-pool 10      # stop refilling once pool >= 10
   python outlook_reg_loop.py --max-press 5         # OUTLOOK_REG_MAX_PRESS
@@ -351,6 +352,8 @@ def main():
                     help="seconds to sleep when pool is at target")
     ap.add_argument("--region", "-r", type=str, default="en-us",
                     help="Region code for signup (e.g., en-us, de-de, fr-fr, es-es)")
+    ap.add_argument("--rotate-proxy", action="store_true", default=False,
+                    help="enable proxy rotation before each attempt (default: disabled)")
     args = ap.parse_args()
 
     os.environ.setdefault("OUTLOOK_REG_MAX_PRESS", args.max_press)
@@ -371,6 +374,10 @@ def main():
     # learns the egress IP fast — without rotation we get ERR_CONNECTION_CLOSED
     # after 1-2 signups from the same node.
     clash_client, clash_group = init_clash()
+    if args.rotate_proxy:
+        log(f"proxy rotation enabled (group={clash_group})")
+    else:
+        log("proxy rotation disabled (use --rotate-proxy to enable)")
 
     log(f"pool dir: {POOL_DIR}")
     os.makedirs(POOL_DIR, exist_ok=True)
@@ -390,7 +397,8 @@ def main():
             time.sleep(args.sleep_when_full)
             continue
         # Rotate Clash node before each attempt so MS PX sees a fresh IP.
-        maybe_rotate(clash_client, clash_group)
+        if args.rotate_proxy:
+            maybe_rotate(clash_client, clash_group)
         log(f"=== attempt #{n}  (pool={ps}, succ={succ}, fail={failed}) ===")
         t0 = time.time()
         email = password = None

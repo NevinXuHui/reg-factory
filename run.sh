@@ -54,6 +54,7 @@ ${YELLOW}命令列表:${NC}
   ${BLUE}full${NC}               端到端注册（outlook → 三平台）
   ${BLUE}platforms${NC}          仅三平台注册（从邮箱池）
   ${BLUE}outlook${NC}            仅养 Outlook 号（循环注册，使用 BitBrowser）
+                       默认不轮换代理，使用 --rotate-proxy 启用轮换
   ${BLUE}outlook-standalone${NC} 独立 Outlook 注册（支持多种模式和代理配置）
   ${BLUE}export${NC}             导出已注册账号 cookie
   ${BLUE}unlock${NC}             批量解锁被锁的 Outlook 账号
@@ -77,9 +78,10 @@ ${YELLOW}示例:${NC}
   ./run.sh check                              # 检查环境是否就绪
   ./run.sh full                               # 注册 1 个 outlook + claude
   ./run.sh full --platforms claude chatgpt    # 注册 1 个 outlook + claude + chatgpt
-  ./run.sh outlook --count 10                 # 养 10 个美国 outlook.com 号（BitBrowser）
-  ./run.sh outlook --count 10 --region de-de  # 养 10 个德国 outlook.de 号（BitBrowser）
-  ./run.sh outlook --region fr-fr            # 无限循环养法国 outlook.fr 号（BitBrowser）
+  ./run.sh outlook --count 10                 # 养 10 个美国 outlook.com 号（不轮换代理）
+  ./run.sh outlook --count 10 --rotate-proxy  # 养 10 个号（启用代理轮换）
+  ./run.sh outlook --count 10 --region de-de  # 养 10 个德国 outlook.de 号
+  ./run.sh outlook --region fr-fr            # 无限循环养法国 outlook.fr 号
   ./run.sh outlook-standalone --count 5 --region de-de  # 独立模式注册 5 个德国号
   ./run.sh outlook-standalone --count 10 --mode protocol  # 纯 HTTP 模式（最快）
   ./run.sh outlook-standalone --count 5 --no-proxy  # 不使用代理（Clash TUN）
