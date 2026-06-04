@@ -887,7 +887,7 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False, regi
             if await year_input.count() > 0:
                 await year_input.fill(str(year))
         else:
-            # New UI with combobox/dropdown (Chinese or English)
+            # New UI with combobox/dropdown (multi-language support)
             print(f"  {tag} no <select>, trying new UI (combobox)...")
 
             month_names_en = ["", "January", "February", "March", "April", "May", "June",
@@ -898,6 +898,9 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False, regi
             # French month names
             month_names_fr = ["", "janvier", "février", "mars", "avril", "mai", "juin",
                               "juillet", "août", "septembre", "octobre", "novembre", "décembre"]
+            # German month names
+            month_names_de = ["", "Januar", "Februar", "März", "April", "Mai", "Juni",
+                              "Juli", "August", "September", "Oktober", "November", "Dezember"]
 
             # Find all visible comboboxes
             combos = page.locator('button[role="combobox"], [role="combobox"]')
@@ -945,58 +948,121 @@ async def register_outlook(page, context, idx=0, captcha_early_abort=False, regi
                             is_day = True
 
                     if is_month and not month_filled:
-                        await combo.click(force=True)
-                        await asyncio.sleep(1)
-                        # Try month option (Chinese → English → French → number)
-                        month_opt = page.locator(f'[role="option"]:has-text("{month_names_cn[month]}")').first
-                        if await month_opt.count() == 0:
-                            month_opt = page.locator(f'[role="option"]:has-text("{month_names_en[month]}")').first
-                        if await month_opt.count() == 0:
-                            month_opt = page.locator(f'[role="option"]:has-text("{month_names_fr[month]}")').first
-                        if await month_opt.count() == 0:
-                            month_opt = page.locator(f'[role="option"]:has-text("{month}")').first
-                        if await month_opt.count() > 0:
-                            await month_opt.click()
-                            month_filled = True
-                            print(f"  {tag} month: {month}")
-                        else:
-                            await page.keyboard.type(str(month))
-                            await asyncio.sleep(0.3)
-                            await page.keyboard.press("Enter")
-                            month_filled = True
-                        await asyncio.sleep(1)
+                        # Retry mechanism for month selection (dropdown may close unexpectedly)
+                        for attempt in range(3):
+                            try:
+                                print(f"  {tag} selecting month (attempt {attempt+1}/3)...")
+                                await combo.click(force=True)
+                                await asyncio.sleep(0.5)
+                                # Wait for options to appear (important for slow networks/regions)
+                                try:
+                                    await page.wait_for_selector('[role="option"]', timeout=3000, state='visible')
+                                    await asyncio.sleep(0.5)
+                                except Exception:
+                                    print(f"  {tag} month options timeout, trying anyway...")
+
+                                # Try month option (Chinese → English → French → German → number)
+                                month_opt = page.locator(f'[role="option"]:has-text("{month_names_cn[month]}")').first
+                                if await month_opt.count() == 0:
+                                    month_opt = page.locator(f'[role="option"]:has-text("{month_names_en[month]}")').first
+                                if await month_opt.count() == 0:
+                                    month_opt = page.locator(f'[role="option"]:has-text("{month_names_fr[month]}")').first
+                                if await month_opt.count() == 0:
+                                    month_opt = page.locator(f'[role="option"]:has-text("{month_names_de[month]}")').first
+                                if await month_opt.count() == 0:
+                                    month_opt = page.locator(f'[role="option"]:has-text("{month}")').first
+
+                                if await month_opt.count() > 0:
+                                    # Ensure option is visible and clickable
+                                    await month_opt.scroll_into_view_if_needed()
+                                    await asyncio.sleep(0.2)
+                                    await month_opt.click(timeout=2000)
+                                    await asyncio.sleep(0.5)
+                                    # Verify selection succeeded (combo should close)
+                                    dropdown_visible = await page.locator('[role="listbox"]').is_visible()
+                                    if not dropdown_visible:
+                                        month_filled = True
+                                        print(f"  {tag} month: {month} ✓")
+                                        break
+                                    else:
+                                        print(f"  {tag} month dropdown still open, retrying...")
+                                else:
+                                    print(f"  {tag} month option not found, using keyboard...")
+                                    await page.keyboard.type(str(month))
+                                    await asyncio.sleep(0.3)
+                                    await page.keyboard.press("Enter")
+                                    month_filled = True
+                                    break
+                            except Exception as e:
+                                print(f"  {tag} month selection attempt {attempt+1} failed: {e}")
+                                if attempt < 2:
+                                    await asyncio.sleep(1)
+
+                        if not month_filled:
+                            print(f"  {tag} month selection failed after 3 attempts, continuing...")
+                        await asyncio.sleep(0.8)
 
                     elif is_day and not day_filled:
-                        await combo.click(force=True)
-                        await asyncio.sleep(1)
-                        # Try day option: exact match first to avoid "1" matching "10","11"...
-                        day_str = str(day)
-                        # Try exact match via all options
-                        day_opt = None
-                        try:
-                            all_opts = page.locator('[role="option"]')
-                            opt_count = await all_opts.count()
-                            for oi in range(opt_count):
-                                opt_text = (await all_opts.nth(oi).text_content() or "").strip()
-                                if opt_text == day_str or opt_text == f"{day}日":
-                                    day_opt = all_opts.nth(oi)
+                        # Retry mechanism for day selection
+                        for attempt in range(3):
+                            try:
+                                print(f"  {tag} selecting day (attempt {attempt+1}/3)...")
+                                await combo.click(force=True)
+                                await asyncio.sleep(0.5)
+                                # Wait for options to appear
+                                try:
+                                    await page.wait_for_selector('[role="option"]', timeout=3000, state='visible')
+                                    await asyncio.sleep(0.5)
+                                except Exception:
+                                    print(f"  {tag} day options timeout, trying anyway...")
+
+                                # Try day option: exact match first to avoid "1" matching "10","11"...
+                                day_str = str(day)
+                                day_opt = None
+                                try:
+                                    all_opts = page.locator('[role="option"]')
+                                    opt_count = await all_opts.count()
+                                    for oi in range(opt_count):
+                                        opt_text = (await all_opts.nth(oi).text_content() or "").strip()
+                                        if opt_text == day_str or opt_text == f"{day}日":
+                                            day_opt = all_opts.nth(oi)
+                                            break
+                                except Exception:
+                                    pass
+
+                                if not day_opt:
+                                    day_opt = page.locator(f'[role="option"]:has-text("{day}日")').first
+                                if not day_opt or await day_opt.count() == 0:
+                                    day_opt = page.locator(f'[role="option"]:has-text("{day_str}")').first
+
+                                if await day_opt.count() > 0:
+                                    await day_opt.scroll_into_view_if_needed()
+                                    await asyncio.sleep(0.2)
+                                    await day_opt.click(timeout=2000)
+                                    await asyncio.sleep(0.5)
+                                    # Verify selection succeeded
+                                    dropdown_visible = await page.locator('[role="listbox"]').is_visible()
+                                    if not dropdown_visible:
+                                        day_filled = True
+                                        print(f"  {tag} day: {day} ✓")
+                                        break
+                                    else:
+                                        print(f"  {tag} day dropdown still open, retrying...")
+                                else:
+                                    print(f"  {tag} day option not found, using keyboard...")
+                                    await page.keyboard.type(str(day))
+                                    await asyncio.sleep(0.3)
+                                    await page.keyboard.press("Enter")
+                                    day_filled = True
                                     break
-                        except Exception:
-                            pass
-                        if not day_opt:
-                            day_opt = page.locator(f'[role="option"]:has-text("{day}日")').first
-                        if not day_opt or await day_opt.count() == 0:
-                            day_opt = page.locator(f'[role="option"]:has-text("{day_str}")').first
-                        if await day_opt.count() > 0:
-                            await day_opt.click()
-                            day_filled = True
-                            print(f"  {tag} day: {day}")
-                        else:
-                            await page.keyboard.type(str(day))
-                            await asyncio.sleep(0.3)
-                            await page.keyboard.press("Enter")
-                            day_filled = True
-                        await asyncio.sleep(1)
+                            except Exception as e:
+                                print(f"  {tag} day selection attempt {attempt+1} failed: {e}")
+                                if attempt < 2:
+                                    await asyncio.sleep(1)
+
+                        if not day_filled:
+                            print(f"  {tag} day selection failed after 3 attempts, continuing...")
+                        await asyncio.sleep(0.8)
                 except Exception as e:
                     print(f"  {tag} combo[{ci}] error: {e}")
 
