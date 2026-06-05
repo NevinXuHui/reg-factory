@@ -119,6 +119,18 @@ async def _turnstile_token(page):
         return None
 
 
+async def _has_turnstile_widget(page):
+    """页面上是否存在 Turnstile widget（cf-turnstile 容器 / data-sitekey / 隐藏响应框 /
+    challenges.cloudflare.com iframe）。用于决定要不要走 ensure_turnstile，避免无墙时空等。"""
+    try:
+        return await page.evaluate(r"""() => !!(
+            document.querySelector('.cf-turnstile,[data-sitekey],input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"]')
+            || [...document.querySelectorAll('iframe')].some(f => (f.src || '').includes('challenges.cloudflare.com'))
+        )""")
+    except Exception:
+        return False
+
+
 async def _extract_sitekey(page):
     """提取 Turnstile sitekey:优先 hook 截获的 window.__cfSitekey,
     再退化到 [data-sitekey] 属性,最后从 challenges.cloudflare.com iframe 的 url 里抠 0x... 串。"""
@@ -624,8 +636,26 @@ async def register_one(index, total, p, node):
             await email_input.click()
             await email_input.fill(email)
             await asyncio.sleep(1)
+            # 关键：accounts.x.ai 邮箱提交这一步常带 Turnstile，**不过墙 x.ai 就不发码**
+            # （表现为"邮件根本没到"）。检测到 widget 就先过墙，再点 Continue。
+            if await _has_turnstile_widget(page):
+                print("  [4] 邮箱步检测到 Turnstile，先过墙再提交")
+                await ensure_turnstile(page, page.url, passive_s=14)
             await click_any(page, CONTINUE_BTN, timeout=5000)
             await asyncio.sleep(5)
+            # 提交后若仍停在邮箱页且 Turnstile 还在（有的布局点击后才弹/token 过期），
+            # 再过一次墙并重点 Continue，确保把发码请求打出去。
+            for _ in range(2):
+                still_email = await _visible_email() is not None
+                if not still_email:
+                    break
+                if await _has_turnstile_widget(page):
+                    print("  [4] 仍在邮箱页，重试过墙 + 提交")
+                    await ensure_turnstile(page, page.url, passive_s=10)
+                    await click_any(page, CONTINUE_BTN, timeout=4000)
+                    await asyncio.sleep(5)
+                else:
+                    break
         else:
             print("  email input not found")
             await dump_state(page, "no-email-input")
