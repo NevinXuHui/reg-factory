@@ -1,5 +1,21 @@
 ﻿# 更新日志
 
+## 2026-06-07 — chatgpt2api 普通网页号导入
+
+**新增**
+- **`export_chatgpt2api.py`**：把注册落下的普通 ChatGPT 网页号聚合成 chatgpt2api（basketikun/chatgpt2api）的批量导入格式。`common/session_export.py:build_chatgpt2api_account` 把网页 session 转成导入对象（只认 `access_token`，**不带 `type:"codex"`**，否则会被对端当 codex 源），注册成功时顺手落 `tokens/chatgpt/c2a-*.json`。
+- **`register_chatgpt.py --import-c2a`**：注册成功后用刚抓到的 session 即时 `POST <host>/api/accounts` 把 token 导入 chatgpt2api（默认关）。host/key 取 `config.CHATGPT2API_URL` / `CHATGPT2API_KEY`（走 `.env`），也可 `--c2a-url` / `--c2a-key` 覆盖。单号导入失败只告警，不影响注册成功判定。
+- `--import-c2a` 逐层透传：`run_full_flow.py` → `register_three_platforms.py` → `register_chatgpt.py`（只对 chatgpt 平台生效，claude/grok 不受影响）。
+- `config.py` 新增 `CHATGPT2API_URL` / `CHATGPT2API_KEY`（默认空，从 `.env` 读）。
+
+**优化**
+- `export_chatgpt2api.py` 新增 `import_accounts(host, key, accounts)`（不抛异常版，返回 `(ok, msg)`），供注册脚本逐个号上传时调用；命令行 `--post` 仍用原 `post_accounts`。
+- `run_full_flow.py` 顺带提交已有的多轮循环（`--rounds` / `--round-sleep`，支持有限轮数与无限循环）。
+
+**说明**
+- 普通网页号无真 `refresh_token`，`access_token` 约 10 天过期后对端无法续期，属预期（codex/OAuth 三件套号仍走 `oauth_codex.py` + CPA/SUB2API）。
+- 对端 API 路径是 `/api/accounts`（`/accounts` 是网页 UI），需 `Authorization: Bearer <admin key>`；重复 token 对端按 skipped 幂等处理。
+
 ## 2026-06-06 - Gmail Android/Appium 本地注册包
 
 **新增**
