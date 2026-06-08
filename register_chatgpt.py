@@ -28,6 +28,11 @@ from common.mailbox import get_code_by_token, get_code_outlook_pw
 from common.cookies import save_platform_cookies
 from common import emails as email_pool
 
+try:
+    from config import CHATGPT2API_URL, CHATGPT2API_KEY
+except Exception:
+    CHATGPT2API_URL, CHATGPT2API_KEY = "", ""
+
 PLATFORM = "chatgpt"
 SIGNUP_URL = "https://chatgpt.com/auth/login"
 KEY_COOKIES = ["__Secure-next-auth.session-token", "__Secure-next-auth.session-token.0"]
@@ -37,6 +42,9 @@ FIXED_EMAIL = None
 FIXED_PASSWORD = None
 FIXED_REFRESH_TOKEN = None
 FIXED_CLIENT_ID = None
+IMPORT_C2A = False  # 注册成功后即时把 token 导入 chatgpt2api（--import-c2a 开启）
+C2A_URL = None  # chatgpt2api host（默认取 config.CHATGPT2API_URL）
+C2A_KEY = None  # chatgpt2api admin key（默认取 config.CHATGPT2API_KEY）
 
 # OpenAI 发件人 / 验证码邮件特征
 OAI_SENDER = ("openai.com", "noreply@", "no-reply@")
@@ -47,9 +55,18 @@ def rand_password():
     return "Aa1!" + "".join(random.choices(string.ascii_letters + string.digits, k=12))
 
 
+# 常见英文名/姓，短且自然（比随机字母串更像真人，键入也快）
+_FIRST_NAMES = ["James", "Mary", "John", "Anna", "David", "Laura", "Mike", "Emma",
+                "Chris", "Sara", "Paul", "Lucy", "Mark", "Nina", "Tom", "Kate",
+                "Alex", "Ella", "Sam", "Lily", "Ben", "Zoe", "Leo", "Ruby"]
+_LAST_NAMES = ["Smith", "Jones", "Brown", "Davis", "Evans", "Clark", "Hall", "Lee",
+               "Walker", "Young", "King", "Wright", "Green", "Baker", "Adams", "Carter",
+               "Reed", "Cook", "Bell", "Ward", "Gray", "Hughes", "Price", "Wood"]
+
+
 def rand_name():
-    first = "".join(random.choices(string.ascii_lowercase, k=6)).capitalize()
-    last = "".join(random.choices(string.ascii_lowercase, k=7)).capitalize()
+    first = random.choice(_FIRST_NAMES)
+    last = random.choice(_LAST_NAMES)
     return first, last
 
 
@@ -138,15 +155,27 @@ async def dismiss_cookie_banner(page):
     return False
 
 
-async def fill_email_verified(page, email_input, email, tries=3):
+async def fill_email_verified(page, email_input, email, tries=4):
     """填邮箱（React 受控输入：键盘逐字+JS setter 兜底，见 common.browser.react_fill）。
-    fill() 只改 DOM .value 不触发 React onChange -> 提交空邮箱 ?email=。每轮失败先关 cookie 横幅再试。"""
+    fill() 只改 DOM .value 不触发 React onChange -> 提交空邮箱 ?email=。
+
+    坑：cookie 同意横幅常在打开页面后、填邮箱当下才异步弹出，盖住输入框抢焦点：
+    键盘输入落空（React onChange 收不到值），但 JS setter 兜底把 DOM .value 写进去了
+    -> react_fill 回读 input_value() 匹配 -> 误报成功 -> 不重试不关横幅 -> 空提交。
+    所以这里每轮**先关横幅再填**，填完若横幅仍在则再关一次并重填。"""
     sel = 'input[type="email"], input[name="email"]'
     for i in range(tries):
-        if await react_fill(page, sel, email, tries=1, verbose=False):
-            return True
-        print(f"  [2] email not committed, retry {i+1}/{tries}")
+        # 先关横幅（可能这轮才弹出来），再填——避免横幅抢焦点导致键盘输入落空
         await dismiss_cookie_banner(page)
+        if await react_fill(page, sel, email, tries=2, verbose=False):
+            # 二次确认：横幅若此刻才冒出来盖住，关掉它并回读校验，防 setter 误报
+            await dismiss_cookie_banner(page)
+            try:
+                if (await page.locator(sel).first.input_value()).strip() == email:
+                    return True
+            except Exception:
+                return True
+        print(f"  [2] email not committed, retry {i+1}/{tries}")
         await asyncio.sleep(1)
     return False
 
@@ -160,6 +189,28 @@ async def detect_challenge(page):
         return await page.locator(sel).count() > 0
     except Exception:
         return False
+
+
+def import_chatgpt2api(session, email):
+    """注册成功后把单个号的 token 导入 chatgpt2api（--import-c2a）。
+    用注册时已抓到的 session 直接构造导入对象并 POST，避免再抓一次。
+    失败只打印告警，不影响注册成功判定。"""
+    if not session:
+        print("  [c2a] 无 session，跳过导入")
+        return
+    host = C2A_URL or CHATGPT2API_URL
+    key = C2A_KEY or CHATGPT2API_KEY
+    if not (host and key):
+        print("  [c2a] 未配置 CHATGPT2API_URL/KEY（--c2a-url/--c2a-key 或 .env），跳过导入")
+        return
+    try:
+        from common.session_export import build_chatgpt2api_account
+        from export_chatgpt2api import import_accounts
+        account = build_chatgpt2api_account(session, email=email)
+        ok, msg = import_accounts(host, key, [account])
+        print(f"  [c2a] import {email}: {'OK' if ok else 'FAIL'} - {msg}")
+    except Exception as e:
+        print(f"  [c2a] 导入失败: {str(e)[:120]}")
 
 
 async def register_one(index, total, p):
@@ -223,6 +274,14 @@ async def register_one(index, total, p):
         # 填后回读校验：没真正进去就重填，避免空提交
         if not await fill_email_verified(page, email_input, email):
             print("  [2] email fill failed after retries")
+        # 提交前最后一道：关横幅（可能此刻才弹），并回读确认邮箱真在框里，否则再补填一次
+        await dismiss_cookie_banner(page)
+        try:
+            if (await email_input.input_value()).strip() != email:
+                print("  [2] email empty before submit, refilling once...")
+                await fill_email_verified(page, email_input, email, tries=2)
+        except Exception:
+            pass
         # 提交：按钮文本中/英/日多语言精确匹配，避免点到 Continue with Google/Apple
         if not await click_any_exact(page, ["Continue", "続行", "继续", "繼續", "Next", "下一步", "Teruskan"]):
             sub = page.locator('button[type="submit"]')
@@ -329,6 +388,7 @@ async def register_one(index, total, p):
                     await dump_state(page, "after-code-retry")
             else:
                 print("  no code received")
+                # 收不到码：只从 chatgpt 平台拉黑（记 emails_error_chatgpt.txt），其它平台仍可取
                 email_pool.mark_error(PLATFORM, email, email_pw, "no_code")
         check_timeout()
 
@@ -348,6 +408,23 @@ async def register_one(index, total, p):
         key_val, _ = await save_platform_cookies(
             ctx, PLATFORM, pid, email=email, password=password, key_cookie_names=KEY_COOKIES
         )
+
+        # 导出标准 token（CPA codex / SUB2API content），失败不影响成功判定
+        try:
+            from common.session_export import fetch_chatgpt_session, save_chatgpt_tokens
+            sess = await fetch_chatgpt_session(page)
+            if sess and save_chatgpt_tokens(sess, email):
+                print("  [OK] chatgpt 标准 token 已保存")
+            else:
+                print("  [WARN] 未取到 chatgpt session（可能未完全登录）")
+        except Exception as e:
+            print(f"  [WARN] 保存标准 token 失败: {e}")
+            sess = None
+
+        # 即时导入 chatgpt2api（--import-c2a；用刚抓到的 session 直接 POST，单号失败不影响注册成功）
+        if IMPORT_C2A:
+            import_chatgpt2api(sess, email)
+
         if key_val:
             email_pool.mark_used(PLATFORM, email, email_pw)
             success = True
@@ -464,13 +541,47 @@ async def click_finish_button(page, index, age_sel, max_wait=12):
     return False
 
 
+async def dump_onboarding_fields(page, tag=""):
+    """dump onboarding 页的所有 input/select 结构，便于适配未知布局（age 页 / birthday 页）。"""
+    try:
+        print(f"  [onboarding-dump {tag}] url={page.url}")
+        n = await page.locator("input").count()
+        for i in range(min(n, 10)):
+            el = page.locator("input").nth(i)
+            try:
+                print(f"    input[{i}] type={await el.get_attribute('type')} "
+                      f"name={await el.get_attribute('name')} "
+                      f"placeholder={await el.get_attribute('placeholder')} "
+                      f"inputmode={await el.get_attribute('inputmode')} "
+                      f"aria-label={await el.get_attribute('aria-label')}")
+            except Exception:
+                pass
+        ns = await page.locator("select").count()
+        for i in range(min(ns, 6)):
+            el = page.locator("select").nth(i)
+            try:
+                print(f"    select[{i}] name={await el.get_attribute('name')} "
+                      f"aria-label={await el.get_attribute('aria-label')}")
+            except Exception:
+                pass
+        # combobox/listbox（自定义下拉，非原生 select）
+        nc = await page.get_by_role("combobox").count()
+        if nc:
+            print(f"    comboboxes: {nc}")
+    except Exception as e:
+        print(f"  [onboarding-dump] error: {e}")
+
+
 async def handle_onboarding(page, index, max_rounds=6):
-    """处理注册后的引导页：名字、生日、各种 Continue/Agree"""
+    """处理注册后的引导页：名字、生日/年龄、各种 Continue/Agree"""
     name_done = False  # about-you 名字只填一次，避免每轮重置成新随机名
+    bday_done = False
     for r in range(max_rounds):
         await asyncio.sleep(2)
         body = (await page.locator("body").inner_text()).lower()
         url = page.url.lower()
+        if r == 0:
+            await dump_onboarding_fields(page, tag=f"round{r}")  # 首轮 dump 结构，便于排查未知布局
 
         name_sel = 'input[name="name"], input[placeholder*="name" i], input[placeholder*="全名"], input[placeholder*="姓名"], input[autocomplete="name"]'
         age_sel = 'input[name="age"], input[type="number"], input[placeholder*="age" i], input[placeholder*="年齢"], input[placeholder*="年龄"]'
@@ -481,16 +592,17 @@ async def handle_onboarding(page, index, max_rounds=6):
         if on_about_you:
             if not name_done and await page.locator(name_sel).count() > 0:
                 first, last = rand_name()
-                if await react_fill(page, name_sel, f"{first} {last}", tries=2, verbose=False):
+                # delay/settle 调低：名字/年龄是 onboarding 的本地字段，不像邮箱要防风控，快点键入即可
+                if await react_fill(page, name_sel, f"{first} {last}", tries=2, delay=12, settle=0.15, verbose=False):
                     print(f"  [onboarding] name: {first} {last}")
                     name_done = True
                     await blur_field(page, name_sel)
-                    await asyncio.sleep(0.5)
-            if await react_fill(page, age_sel, str(random.randint(18, 40)), tries=2, verbose=False):
+                    await asyncio.sleep(0.2)
+            if await react_fill(page, age_sel, str(random.randint(18, 40)), tries=2, delay=12, settle=0.15, verbose=False):
                 print("  [onboarding] age filled")
                 # 关键：失焦让 onBlur 校验跑起来，Finish 按钮才会解除 disabled
                 await blur_field(page, age_sel)
-                await asyncio.sleep(0.8)
+                await asyncio.sleep(0.3)
             if await click_finish_button(page, index, age_sel):
                 await asyncio.sleep(3)
                 continue  # 进入下一轮看是否还有后续引导页
@@ -503,15 +615,57 @@ async def handle_onboarding(page, index, max_rounds=6):
                 print(f"  [onboarding] name: {first} {last}")
                 await asyncio.sleep(1)
 
-        # 生日（date 输入用原生 fill 即可，非 React 文本受控框）
-        bday = page.locator('input[name="birthday"], input[type="date"], input[placeholder*="birth" i], input[placeholder*="生日"], input[placeholder*="出生"]')
-        if await bday.count() > 0:
+        # 生日页：仅当存在**可见**生日输入框时才处理（另一种 onboarding 布局）。
+        # 注意 about-you 页有个 name=birthday 的 type=hidden 字段，是 OpenAI 前端按 age 自动算的，
+        # 绝不能碰 —— 故这里排除 hidden，用 :visible 限定，避免误填隐藏框导致卡死。
+        bday = page.locator(
+            'input[type="date"]:visible, '
+            'input[name="birthday"]:not([type="hidden"]):visible, '
+            'input[name="dob"]:visible, '
+            'input[placeholder*="birth" i]:visible, input[placeholder*="生日"]:visible, '
+            'input[placeholder*="出生"]:visible, '
+            'input[placeholder*="DD" i]:visible, input[placeholder*="MM" i]:visible, '
+            'input[placeholder*="YYYY" i]:visible')
+        if not bday_done and not on_about_you and await bday.count() > 0:
+            filled = False
+            # 1) 原生 date：fill ISO 即可
             try:
-                await bday.first.fill("1995-06-15")
-                print("  [onboarding] birthday filled")
-                await asyncio.sleep(1)
+                first_bday = bday.first
+                btype = await first_bday.get_attribute("type")
+                if btype == "date":
+                    await first_bday.fill("1995-06-15")
+                    filled = (await first_bday.input_value()).strip() != ""
             except Exception:
                 pass
+            # 2) React 受控文本/分段（MM/DD/YYYY 等）：逐个填
+            if not filled:
+                cnt = await bday.count()
+                if cnt >= 3:
+                    # 分段 month/day/year 三框：按 placeholder 判断填 06 / 15 / 1995
+                    for i in range(min(cnt, 3)):
+                        seg = bday.nth(i)
+                        ph = (await seg.get_attribute("placeholder") or "").lower()
+                        v = "1995" if ("y" in ph or "年" in ph) else ("15" if ("d" in ph or "日" in ph) else "06")
+                        try:
+                            await seg.click(timeout=4000)
+                            await seg.press("Control+A", timeout=2000)
+                            await seg.press("Delete", timeout=2000)
+                            await page.keyboard.type(v, delay=12)
+                        except Exception:
+                            pass
+                    filled = True
+                else:
+                    # 单框文本日期：试 ISO，再试 MM/DD/YYYY
+                    for v in ["1995-06-15", "06/15/1995"]:
+                        if await react_fill(page, 'input[type="date"]:visible, input[name="dob"]:visible',
+                                            v, tries=1, delay=12, settle=0.15, verbose=False):
+                            filled = True
+                            break
+            if filled:
+                print("  [onboarding] birthday filled")
+                bday_done = True
+                await blur_field(page, 'input[type="date"]:visible, input[name="dob"]:visible')
+                await asyncio.sleep(0.3)
 
         # 点完成/续行（多语言：中/繁/英/日）。具体"完成创建账号"按钮优先于泛化 Continue，
         # 否则 about-you 页只有 'Finish creating account' 这一个按钮会被泛化匹配漏掉。
@@ -583,15 +737,26 @@ async def main():
     parser.add_argument("--password", default=None, help="指定邮箱密码")
     parser.add_argument("--refresh-token", default=None, help="指定 Outlook refresh_token")
     parser.add_argument("--client-id", default=None, help="指定 Outlook OAuth client_id")
+    parser.add_argument("--import-c2a", action="store_true",
+                        help="注册成功后即时把 token 导入 chatgpt2api (POST <host>/api/accounts)")
+    parser.add_argument("--c2a-url", default=None, help="chatgpt2api host (默认取 config.CHATGPT2API_URL)")
+    parser.add_argument("--c2a-key", default=None, help="chatgpt2api admin key (默认取 config.CHATGPT2API_KEY)")
     args = parser.parse_args()
 
     global REGISTER_TIMEOUT, KEEP_ON_FAIL, FIXED_EMAIL, FIXED_PASSWORD, FIXED_REFRESH_TOKEN, FIXED_CLIENT_ID
+    global IMPORT_C2A, C2A_URL, C2A_KEY
     REGISTER_TIMEOUT = args.timeout
     KEEP_ON_FAIL = args.keep_on_fail
     FIXED_EMAIL = args.email
     FIXED_PASSWORD = args.password
     FIXED_REFRESH_TOKEN = args.refresh_token
     FIXED_CLIENT_ID = args.client_id
+    IMPORT_C2A = args.import_c2a
+    C2A_URL = args.c2a_url
+    C2A_KEY = args.c2a_key
+
+    if IMPORT_C2A and not ((C2A_URL or CHATGPT2API_URL) and (C2A_KEY or CHATGPT2API_KEY)):
+        print("  [c2a][WARN] 已开 --import-c2a 但未配置 CHATGPT2API_URL/KEY（--c2a-url/--c2a-key 或 .env），导入会被跳过")
 
     print("=" * 50)
     print(f"  ChatGPT Auto Register  count={args.count} concurrency={args.concurrency}")

@@ -87,3 +87,71 @@ CAPSOLVER_API_KEY = _env("CAPSOLVER_API_KEY", "")
 # EZ-Captcha 验证码打码平台
 EZCAPTCHA_API_KEY = _env("EZCAPTCHA_API_KEY", "")
 EZCAPTCHA_API_BASE = _env("EZCAPTCHA_API_BASE", "https://api.ez-captcha.com")
+
+# YesCaptcha 打码平台（解 Arkose FunCaptcha，GitHub 注册用）。API 与 CapSolver 兼容。
+YESCAPTCHA_API_KEY = _env("YESCAPTCHA_API_KEY", "")
+YESCAPTCHA_API_BASE = _env("YESCAPTCHA_API_BASE", "https://api.yescaptcha.com")
+
+# ---------------------------------------------------------------- agent-captcha 视觉投票求解器
+# GitHub Arkose 拼图用多模态大模型「投票」求解（common/agent_captcha.py）。
+# 各家网关 OpenAI 兼容(/v1/chat/completions)；claude/opus 走 Anthropic 原生(/v1/messages)。
+# 主视觉网关（gpt-5.x，图像增强 gpt-image-2 也在此）
+VISION_API_BASE = _env("VISION_API_BASE", "")
+VISION_API_KEY = _env("VISION_API_KEY", "")
+# 图像增强兜底网关（gpt-image-2 images/edits）
+IMAGE_EDIT_BASE2 = _env("IMAGE_EDIT_BASE2", "")
+IMAGE_EDIT_KEY2 = _env("IMAGE_EDIT_KEY2", "")
+# 投票池：中转网关(gemini/gpt) + claude 专用网关。逗号分隔的 key 留空则该模型不参与。
+VOTE_ZZ_BASE = _env("VOTE_ZZ_BASE", "")          # 中转网关(gemini-3.5-flash / gemini-3.1-pro / gpt-5.5)
+VOTE_ZZ_KEY = _env("VOTE_ZZ_KEY", "")            # 上面网关里 gemini 用的 key
+VOTE_GPT_KEY = _env("VOTE_GPT_KEY", "")          # 同网关里 gpt-5.5 用的 key（可与 ZZ_KEY 不同）
+VOTE_OPUS_BASE = _env("VOTE_OPUS_BASE", "")      # claude opus 专用网关（Anthropic /v1/messages）
+VOTE_OPUS_KEY = _env("VOTE_OPUS_KEY", "")
+# gemma 免费兜底文本网关（可选）
+GEMMA_API_BASE = _env("GEMMA_API_BASE", "")
+GEMMA_API_KEY = _env("GEMMA_API_KEY", "")
+
+# ---------------------------------------------------------------- 标准 token 导出/上传
+# 注册成功后落地的标准格式 token 目录（CPA codex / SUB2API content / grok sso）
+TOKEN_OUTPUT_DIR = _env("TOKEN_OUTPUT_DIR", "tokens")
+
+# CPA 管理接口（ChatGPT codex 授权文件导入）
+CPA_URL = _env("CPA_URL", "")
+CPA_MGMT_KEY = _env("CPA_MGMT_KEY", "")
+
+# SUB2API 管理接口（ChatGPT codex-session 导入）
+SUB2API_URL = _env("SUB2API_URL", "")
+SUB2API_EMAIL = _env("SUB2API_EMAIL", "")
+SUB2API_PASSWORD = _env("SUB2API_PASSWORD", "")
+SUB2API_GROUP = _env("SUB2API_GROUP", "codex")  # 目标分组名，需先在 SUB2API 后台建好
+
+# webchat2api（Grok sso 注入）
+WEBCHAT2API_URL = _env("WEBCHAT2API_URL", "")
+WEBCHAT2API_KEY = _env("WEBCHAT2API_KEY", "")
+
+# chatgpt2api（basketikun/chatgpt2api 普通网页号导入，POST <url>/api/accounts）
+# register_chatgpt.py --import-c2a 注册成功后逐个上传时用
+CHATGPT2API_URL = _env("CHATGPT2API_URL", "")  # 对端 host（见 .env）
+CHATGPT2API_KEY = _env("CHATGPT2API_KEY", "")  # 对端 admin key（Authorization: Bearer）
+
+# ---------------------------------------------------------------- 订阅授权入口
+# Codex / ChatGPT Plus：baxigpt.com（卡密 + 账号 access_token → 开通 Plus）
+BAXI_API = _env("BAXI_API", "https://baxigpt.com")
+# 卡密池：一个或多个 BX-XXXXXXXX，逗号/换行/空格分隔，方便批量
+BAXI_CARDS = [c.strip().upper() for c in _env("BAXI_CARDS", "").replace("\n", ",").replace(" ", ",").split(",") if c.strip()]
+
+# Claude / SuperGrok 订阅入口（激活码 CDK 流程「敬请期待」，后续支持授权到 SUB2API / CPA）
+CLAUDE_SUB_URL = _env("CLAUDE_SUB_URL", "https://6661231.xyz/#/claude")
+GROK_SUB_URL = _env("GROK_SUB_URL", "https://6661231.xyz/#/grok")
+# 激活码 CDK 池（预留，逗号/换行/空格分隔）
+CLAUDE_SUB_CDK = [c.strip() for c in _env("CLAUDE_SUB_CDK", "").replace("\n", ",").replace(" ", ",").split(",") if c.strip()]
+GROK_SUB_CDK = [c.strip() for c in _env("GROK_SUB_CDK", "").replace("\n", ",").replace(" ", ",").split(",") if c.strip()]
+
+# ---------------------------------------------------------------- ChatGPT OAuth add-phone 接码
+# OpenAI/ChatGPT 在接码平台的服务号（按平台分，跟 Claude 的不同）
+SMS_PROJECT_ID_OPENAI = _env("SMS_PROJECT_ID_OPENAI", "")  # firefox.fun 的 ChatGPT 项目 iid（待填）
+HERO_SMS_SERVICE_OPENAI = _env("HERO_SMS_SERVICE_OPENAI", "dr")  # hero-sms/sms-activate OpenAI 服务码默认 dr
+# firefox.fun 价格上限：'0' 只取最便宜(垃圾号易被 OpenAI 拒)，给够才摸得到智利等好号
+SMS_MAXPRICE_OPENAI = _env("SMS_MAXPRICE_OPENAI", "20")
+# OpenAI add-phone 拉黑的号段(dialing code)：261 马达加斯加、63 菲律宾 等 OpenAI 常拒的
+SMS_COUNTRY_BLACKLIST_OPENAI = [c.strip() for c in _env("SMS_COUNTRY_BLACKLIST_OPENAI", "261,63").split(",") if c.strip()]
